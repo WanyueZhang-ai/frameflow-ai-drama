@@ -1,14 +1,9 @@
-import {writeFile,mkdir,readFile} from 'node:fs/promises';
+import {generateLLM} from '../dist/lib/model.mjs';
+import {writeFile,mkdir} from 'node:fs/promises';
 import path from 'node:path';
 import {spawn} from 'node:child_process';
-import {validateArtifact,sleep} from '../dist/lib/engine.mjs';
+import {sleep} from '../dist/lib/engine.mjs';
 
-const schemas={
-  plan:'{"summary":"规划摘要","tasks":["按顺序列出具体创作任务"]}',
-  script:'{"title":"片名","logline":"故事梗概","summary":"创作摘要","characters":[{"name":"角色名","description":"年龄、外观、服装与道具的固定设定","voice":"声线描述"}],"scenes":[{"id":"scene-1","location":"内外景/地点/时间","beat":"本场行动与情节","dialogue":[{"speaker":"必须与角色名一致","text":"台词"}]}]}',
-  review:'{"passed":true,"findings":["逐条审查意见"],"summary":"审稿摘要"}',
-  storyboard:'{"summary":"分镜摘要","shots":[{"id":"shot-1","sceneId":"已存在的场景ID","duration":10,"camera":"景别与运镜","visual":"画面描述","prompt":"包含角色外观、场景、动作、运镜、光线和连续性约束的完整视频生成提示词","narration":"该镜头的旁白或台词，不要附加角色名"}]}'
-};
 function required(env,key){if(!env[key])throw new Error(`服务端尚未配置 ${key}`);return env[key];}
 function externalURL(value){const u=new URL(value);if(u.protocol!=='https:')throw new Error('媒体地址必须使用 HTTPS');const h=u.hostname.toLowerCase();if(h==='localhost'||h==='::1'||h==='[::1]'||h.endsWith('.local')||h.startsWith('127.')||h.startsWith('10.')||h.startsWith('192.168.')||/^172\.(1[6-9]|2\d|3[01])\./.test(h)||h.startsWith('169.254.')||h==='0.0.0.0')throw new Error('拒绝私有网络媒体地址');return u.href;}
 export async function request(url,init,signal,{binary=false}={}) {
@@ -18,23 +13,7 @@ export async function request(url,init,signal,{binary=false}={}) {
   if(binary){const parts=[];let bytes=0;for await(const part of res.body){bytes+=part.length;if(bytes>100*1024*1024)throw new Error('单个媒体文件超过 100 MB 限制');parts.push(part);}return Buffer.concat(parts);}
   return res.json();
 }
-export async function llm(stage,ctx,env){
-  const {run,signal,log}=ctx;const key=required(env,'LLM_API_KEY'),model=required(env,'LLM_MODEL');
-  const system=`你是专业短剧创作团队的${{plan:'制片人',script:'编剧',review:'独立审稿人',storyboard:'分镜导演'}[stage]}。严格遵循创作简报，输出中文，仅返回合法 JSON，不要 Markdown。JSON 结构必须是：${schemas[stage]}。保持角色、服装、道具、地点和事实一致。${stage==='review'?'检查故事逻辑、角色引用、情节连续性。发现严重矛盾时 passed=false；不要为了通过而隐瞒问题。':''}${stage==='storyboard'?`镜头数在 3 到 12 之间，每个镜头 1–30 秒，所有镜头 duration 之和必须等于 ${run.brief.duration} 秒。sceneId 必须引用已有场景。每个镜头必须有 narration，单段中文长度不超过 duration*3 个汉字，以便配音。`:''}`;
-  const context={brief:{...run.brief,reference:run.brief.reference?'[附图]':''},memory:run.memory,artifacts:Object.fromEntries(Object.entries(run.artifacts).filter(([k])=>['plan','script','review'].includes(k)))};
-  let content=[{type:'text',text:JSON.stringify(context)}];
-  if(stage==='storyboard'&&run.brief.reference)content.push({type:'image_url',image_url:{url:run.brief.reference}});
-  else content=JSON.stringify(context);
-  log(stage==='storyboard'&&run.brief.reference?'调用视觉模型读取参考图与角色记忆':'调用语言模型生成结构化 JSON');
-  let correction='';
-  for(let i=0;i<2;i++){
-    const result=await request(`${(env.LLM_BASE_URL||'https://api.openai.com/v1').replace(/\/$/,'')}/chat/completions`,{method:'POST',headers:{Authorization:`Bearer ${key}`,'Content-Type':'application/json'},body:JSON.stringify({model,messages:[{role:'system',content:system+correction},{role:'user',content}],response_format:{type:'json_object'}})},signal);
-    try{const text=result.choices?.[0]?.message?.content;if(typeof text!=='string')throw new Error('模型返回空内容');const artifact=validateArtifact(stage,JSON.parse(text));if(stage==='storyboard'){
-      const ids=new Set(run.artifacts.script.scenes.map(s=>s.id));if(artifact.shots.some(s=>!ids.has(s.sceneId)))throw new Error('sceneId 无效');
-      if(Math.abs(artifact.shots.reduce((sum,s)=>sum+s.duration,0)-Number(run.brief.duration))>1)throw new Error('分镜总时长不等于目标时长');
-    }return artifact;}catch(e){if(i)throw new Error(`结构化输出校验失败：${e.message}`);log('结构化输出不满足约束，执行一次定向修复');correction=`\n上一次输出的校验错误是：${e.message}。重新生成完整有效 JSON 并修正此错误。`;}
-  }
-}
+export const llm=(stage,ctx,env)=>generateLLM(stage,ctx,env,request);
 export function execFile(command,args,{signal,cwd}={}){return new Promise((resolve,reject)=>{const child=spawn(command,args,{cwd,signal,stdio:['ignore','pipe','pipe']});let output='';child.stderr.on('data',d=>{output=(output+d.toString()).slice(-3000);});child.once('error',reject);child.once('close',code=>code===0?resolve():reject(new Error(`媒体合成失败 (${code})：${output.slice(-500)}`)));});}
 export function createLiveTools({env=process.env,mediaRoot,fetchRequest=request,exec=execFile}={}){
   const dirFor=async run=>{const dir=path.join(mediaRoot,run.id);await mkdir(dir,{recursive:true});return dir;};

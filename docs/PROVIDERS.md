@@ -1,4 +1,22 @@
-# 真实模式：配置与工具协议
+# 自带 API：网页直连与个人服务端
+
+## 在网页填写自己的 API
+
+公开架构页无需登录。进入 `studio.html#connect`，选择「网页直连」，填写三个服务的配置：
+
+| 服务 | 必填内容 | 协议 |
+| --- | --- | --- |
+| 语言 / 视觉 | HTTPS 根地址、模型、API Key | `POST /chat/completions`，JSON mode；参考图需视觉支持 |
+| 视频 | HTTPS 适配服务根地址；需要时填写独立 Key | 下文的 `POST /jobs` 与 `GET /jobs/:id` |
+| 配音 | HTTPS 根地址、模型、音色、独立填写 Key | `POST /audio/speech`，返回 `audio/*` 字节 |
+
+Key 只在当前标签页内存中保留，不写入浏览器存储、导出项目或 GitHub；各服务独立使用自己的 Key，不自动复用到另一主机。地址和模型名称保存到本机浏览器。API 根地址不能嵌入账号、密码或查询参数。确认填写的是自己信任的服务地址。
+
+浏览器请求使用 `credentials: omit`、`redirect: error` 和 `no-referrer`。API 服务需允许网页来源，例如 `https://wanyuezhang-ai.github.io`，以及 `GET, POST, OPTIONS` 和 `Authorization, Content-Type, Idempotency-Key` 请求头。视频文件 CDN 同样需允许浏览器读取；下载不携带 API Key，可使用带查询参数的 HTTPS 签名媒体 URL。若服务不支持 CORS，可使用下文的个人服务端模式。
+
+浏览器用 Canvas、Web Audio、MediaRecorder 按分镜时长实时合成，优先支持 MP4 时输出 MP4，否则 WebM。合成期间保持标签页在前台。配音和成片为当前页 Blob，刷新后会重置相应产物状态，保留文字与视频任务检查点；重新输入 Key 后需要重新配音、合成。完成后可下载视频和 SRT 字幕。视频原生接口若不符合 `/jobs` 协议，需要用户自行配置适配服务。
+
+以下为个人服务端配置和共用工具协议。
 
 ## 本地环境
 
@@ -10,7 +28,7 @@ cp .env.example .env
 npm start
 ```
 
-打开 <http://127.0.0.1:8787>，在「模型与连接」检查服务端。四个能力都配置后选择真实接口，再运行项目。在线静态站不提供付费生成后端，建议真实模式始终在本地工作台使用；在线 HTTPS 页面连接本地 HTTP 会受浏览器策略限制。
+打开 <http://127.0.0.1:8787/studio.html>，检查个人服务端。四个能力都配置后选择「个人服务端」，再运行项目。在线网页不提供公共生成后端；个人服务端需由使用者运行。在线 HTTPS 页面连接本地 HTTP 会受浏览器策略限制。
 
 ## LLM / MLLM
 
@@ -47,7 +65,7 @@ npm start
 {"id":"provider-job-123","status":"succeeded","url":"https://your-media-host.example/clip.mp4"}
 ```
 
-状态支持 `pending`、`running`、`succeeded`、`failed`、`cancelled`；成功必须带可直接下载的 HTTPS `url`。媒体下载不自动携带供应商密钥，应返回短时签名地址。单文件最多 100 MB，不接受 HTTP 地址、明显私网 IP 或重定向。供应商域名及 DNS 仍应由生产出站代理限制。
+状态支持 `pending`、`running`、`succeeded`、`failed`、`cancelled`；成功必须带可直接下载的 HTTPS `url`。媒体下载不自动携带供应商密钥，可返回带查询参数的短时签名地址。单文件最多 100 MB，不接受 HTTP 或重定向；个人服务端额外拒绝明显私网 IP。供应商域名及 DNS 仍应由生产出站代理限制。
 
 视频任务 ID 和最后响应存入检查点；网络中断后继续轮询。适配服务必须实现幂等提交，尤其应明确失败任务重试时原幂等键如何重新开始。停止工作流只停止本地等待和请求；当前没有供应商取消 API。长任务默认最多轮询 10 分钟，可调整 `VIDEO_TIMEOUT_MS`；超时后任务 ID 保留，点击继续可以接着查。
 

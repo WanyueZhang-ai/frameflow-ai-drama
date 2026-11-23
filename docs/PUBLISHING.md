@@ -6,7 +6,7 @@
 
 原展示站继续保留：<https://frameflow-drama-studio.poisedbead8.chatgpt.site>。
 
-这是静态展示工作台。访问者项目只保存在自己的浏览器，不会读取发布者在本地创建的项目。在线演示不包含模型 API 密钥，也不提供公共付费生成后端。
+这是无需登录的架构首页与创作工作台。访问者项目保存在自己的浏览器。演示不调用模型；网页直连由访客填写自己的 API，Key 仅在标签页内存中使用，直接发送给对应服务。网站不提供公共模型额度。
 
 ## GitHub 仓库
 
@@ -25,6 +25,6 @@
 
 公开地址为 `https://wanyuezhang-ai.github.io/frameflow-ai-drama/`，已通过未登录 HTTP 访问检查。原展示站保持独立，不随 GitHub 提交自动更新。
 
-工作流只上传 `dist/`；模型适配服务端、环境配置与运行数据不会部署到 GitHub Pages。真实生成请按 `docs/PROVIDERS.md` 在本地运行服务端。
+工作流只上传 `dist/`；模型适配服务端、环境配置与运行数据不会部署到 GitHub Pages。访客可直接使用 `studio.html#connect` 配置自己的 API，接口需支持 CORS 和项目协议；也可按 `docs/PROVIDERS.md` 运行个人服务端。
 
 官方参考：[GitHub Pages 自定义工作流](https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages)。
