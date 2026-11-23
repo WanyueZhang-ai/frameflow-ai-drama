@@ -6,7 +6,7 @@
 
 ## 立即体验
 
-- 公开演示：<https://frameflow-drama-studio.poisedbead8.chatgpt.site>
+- 公开演示：<https://wanyuezhang-ai.github.io/frameflow-ai-drama/>
 - 开源维护者：[WanyueZhang-ai](https://github.com/WanyueZhang-ai)。
 - 本地：安装 Node.js 22+，在本目录运行 `npm start`，打开 <http://127.0.0.1:8787>。
 - 无第三方运行依赖，无需安装前端包。演示模式不需要 API Key。

@@ -4,10 +4,19 @@
   "private": true,
   "license": "MIT",
   "author": "WanyueZhang-ai",
-  "homepage": "https://frameflow-drama-studio.poisedbead8.chatgpt.site",
-  "repository": { "type": "git", "url": "https://github.com/WanyueZhang-ai/frameflow-ai-drama.git" },
+  "homepage": "https://wanyuezhang-ai.github.io/frameflow-ai-drama/",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/WanyueZhang-ai/frameflow-ai-drama.git"
+  },
   "type": "module",
   "description": "AI short-drama agents, orchestration engine and creative workspace",
-  "scripts": { "start": "node server.mjs", "test": "node --test tests/*.test.mjs", "check": "node scripts/check.mjs" },
-  "engines": { "node": ">=22" }
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "check": "node scripts/check.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  }
 }
