@@ -1,4 +1,5 @@
 import {generateLLM} from '../dist/lib/model.mjs';
+import {videoInput,requestFingerprint} from '../dist/lib/memory.mjs';
 import {writeFile,mkdir} from 'node:fs/promises';
 import path from 'node:path';
 import {spawn} from 'node:child_process';
@@ -22,17 +23,18 @@ export function createLiveTools({env=process.env,mediaRoot,fetchRequest=request,
   return {
     ...Object.fromEntries(['plan','script','review','storyboard'].map(stage=>[stage,ctx=>llm(stage,ctx,env)])),
     video:async({run,signal,log,checkpoint})=>{
-      const base=required(env,'VIDEO_API_URL').replace(/\/$/,'');const jobs={...run.nodes.video.checkpoint?.jobs};const clips=[];
+      const base=required(env,'VIDEO_API_URL').replace(/\/$/,'');const jobs={...run.nodes.video.checkpoint?.jobs},revisions={...run.nodes.video.checkpoint?.revisions};const clips=[];
       for(const shot of run.artifacts.storyboard.shots){
-        signal.throwIfAborted();let job=jobs[shot.id];
-        if(!job){log(`提交镜头 ${shot.id}，附带幂等键`);job=await fetchRequest(`${base}/jobs`,{method:'POST',headers:{...headers(),'Idempotency-Key':`${run.id}-${shot.id}`},body:JSON.stringify({prompt:shot.prompt,duration:shot.duration,aspect_ratio:run.brief.ratio,reference_image:run.brief.reference||undefined})},signal);if(!job.id)throw new Error('视频适配器未返回任务 ID');jobs[shot.id]=job;checkpoint({jobs});}
+        signal.throwIfAborted();const input=videoInput(run,shot),requestHash=requestFingerprint(input);let job=jobs[shot.id];
+        if(job?.requestHash&&job.requestHash!==requestHash)job=null;
+        if(!job){log(`提交镜头 ${shot.id}，附带场景约束与版本幂等键`);job=await fetchRequest(`${base}/jobs`,{method:'POST',headers:{...headers(),'Idempotency-Key':`${run.id}-${shot.id}-${requestHash}-${revisions[shot.id]||0}`},body:JSON.stringify(input)},signal);if(!job.id)throw new Error('视频适配器未返回任务 ID');job.requestHash=requestHash;jobs[shot.id]=job;checkpoint({jobs,revisions});}
         const start=Date.now();
         while(!['succeeded','failed','cancelled'].includes(job.status)){
           if(Date.now()-start>Number(env.VIDEO_TIMEOUT_MS||600000))throw new Error('视频任务超时；外部任务 ID 已保留，可继续轮询');
           await sleep(Number(env.VIDEO_POLL_MS||3000),signal);
-          job=await fetchRequest(`${base}/jobs/${encodeURIComponent(job.id)}`,{headers:headers()},signal);jobs[shot.id]=job;checkpoint({jobs});
+          job=await fetchRequest(`${base}/jobs/${encodeURIComponent(job.id)}`,{headers:headers()},signal);job.requestHash=requestHash;jobs[shot.id]=job;checkpoint({jobs,revisions});
         }
-        if(job.status!=='succeeded'){delete jobs[shot.id];checkpoint({jobs});throw new Error(`镜头 ${shot.id} 的视频任务失败；继续执行将重新提交`);}
+        if(job.status!=='succeeded'){delete jobs[shot.id];revisions[shot.id]=(revisions[shot.id]||0)+1;checkpoint({jobs,revisions});throw new Error(`镜头 ${shot.id} 的视频任务失败；继续执行将重新提交`);}
         clips.push({shotId:shot.id,url:externalURL(job.url),duration:shot.duration,providerJobId:job.id});
         log(`镜头 ${shot.id} 已生成`);
       }

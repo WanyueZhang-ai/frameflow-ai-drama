@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import {spawnSync} from 'node:child_process';
 import {Engine,createRun,validateArtifact,AGENTS} from './dist/lib/engine.mjs';
 import {createLiveTools} from './src/providers.mjs';
+import {importMemory,compileStoryboard} from './dist/lib/memory.mjs';
 
 const root=path.dirname(fileURLToPath(import.meta.url));
 try{process.loadEnvFile(path.join(root,'.env'));}catch(e){if(e.code!=='ENOENT')throw e;}
@@ -24,9 +25,10 @@ function validateRun(input){
   const run=createRun({...b,duration:Number(b.duration)},'live');
   // Only import validated completed stages whose dependencies have also completed.
   for(const a of AGENTS){if(input.nodes?.[a.id]?.status==='completed'&&a.deps.every(d=>run.nodes[d].status==='completed')){validateArtifact(a.id,input.artifacts?.[a.id]);if(['video','voice','compose'].includes(a.id))continue;run.artifacts[a.id]=input.artifacts[a.id];run.nodes[a.id]={status:'completed',attempts:0};}}
-  if(run.artifacts.script){run.memory.characters=run.artifacts.script.characters;run.memory.facts=[run.artifacts.script.logline,...run.artifacts.script.scenes.map(s=>s.beat)];}
+  importMemory(run,input.memory);
   if(run.artifacts.storyboard){const scenes=new Set(run.artifacts.script.scenes.map(s=>s.id));if(run.artifacts.storyboard.shots.some(s=>!scenes.has(s.sceneId))||Math.abs(run.artifacts.storyboard.shots.reduce((n,s)=>n+s.duration,0)-run.brief.duration)>1)throw new Error('导入分镜的场景引用或时长无效');}
   if(run.artifacts.review&&!run.artifacts.review.passed)throw new Error('审稿尚未通过');
+  if(run.artifacts.storyboard)run.artifacts.storyboard=compileStoryboard(run,run.artifacts.storyboard);
   return run;
 }
 const mime={'.html':'text/html; charset=utf-8','.css':'text/css','.mjs':'text/javascript','.js':'text/javascript','.webp':'image/webp','.png':'image/png','.svg':'image/svg+xml','.mp4':'video/mp4','.mp3':'audio/mpeg','.srt':'text/plain'};

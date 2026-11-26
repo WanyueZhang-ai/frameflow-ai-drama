@@ -1,5 +1,6 @@
 import {sleep} from './engine.mjs';
 import {generateLLM} from './model.mjs';
+import {videoInput,requestFingerprint} from './memory.mjs';
 import {composeInBrowser,prepareMedia,mediaSupported} from './browser-media.mjs';
 
 export const CONFIG_FIELDS=['LLM_BASE_URL','LLM_MODEL','LLM_API_KEY','VIDEO_API_URL','VIDEO_API_KEY','TTS_BASE_URL','TTS_MODEL','TTS_VOICE','TTS_API_KEY'];
@@ -36,16 +37,17 @@ export function createBrowserTools(config,{request=browserRequest,compose=compos
   return {
     ...Object.fromEntries(['plan','script','review','storyboard'].map(stage=>[stage,ctx=>generateLLM(stage,ctx,env,request)])),
     video:async({run,signal,log,checkpoint})=>{
-      const jobs={...run.nodes.video.checkpoint?.jobs},clips=[];
+      const jobs={...run.nodes.video.checkpoint?.jobs},revisions={...run.nodes.video.checkpoint?.revisions},clips=[];
       for(const shot of run.artifacts.storyboard.shots){
-        signal.throwIfAborted();let job=jobs[shot.id];
-        if(!job){log(`向自定义视频服务提交镜头 ${shot.id}`);job=await request(`${env.VIDEO_API_URL}/jobs`,{method:'POST',headers:{...videoHeaders,'Idempotency-Key':`${run.id}-${shot.id}`},body:JSON.stringify({prompt:shot.prompt,duration:shot.duration,aspect_ratio:run.brief.ratio,reference_image:run.brief.reference||undefined})},signal);if(!job?.id)throw new Error('视频服务没有返回任务 ID，请确认符合项目适配协议');jobs[shot.id]=job;checkpoint({jobs});}
+        signal.throwIfAborted();const input=videoInput(run,shot),requestHash=requestFingerprint(input);let job=jobs[shot.id];
+        if(job?.requestHash&&job.requestHash!==requestHash)job=null;
+        if(!job){log(`向自定义视频服务提交镜头 ${shot.id}，附带场景约束`);job=await request(`${env.VIDEO_API_URL}/jobs`,{method:'POST',headers:{...videoHeaders,'Idempotency-Key':`${run.id}-${shot.id}-${requestHash}-${revisions[shot.id]||0}`},body:JSON.stringify(input)},signal);if(!job?.id)throw new Error('视频服务没有返回任务 ID，请确认符合项目适配协议');job.requestHash=requestHash;jobs[shot.id]=job;checkpoint({jobs,revisions});}
         const start=Date.now();
         while(!['succeeded','failed','cancelled'].includes(job.status)){
           if(Date.now()-start>600000)throw new Error('视频任务超时，任务 ID 已保留，可继续查询');
-          await sleep(pollMs,signal);job=await request(`${env.VIDEO_API_URL}/jobs/${encodeURIComponent(job.id)}`,{headers:videoHeaders},signal);jobs[shot.id]=job;checkpoint({jobs});
+          await sleep(pollMs,signal);job=await request(`${env.VIDEO_API_URL}/jobs/${encodeURIComponent(job.id)}`,{headers:videoHeaders},signal);job.requestHash=requestHash;jobs[shot.id]=job;checkpoint({jobs,revisions});
         }
-        if(job.status!=='succeeded'){delete jobs[shot.id];checkpoint({jobs});throw new Error(`镜头 ${shot.id} 生成失败，继续时将重新提交`);}
+        if(job.status!=='succeeded'){delete jobs[shot.id];revisions[shot.id]=(revisions[shot.id]||0)+1;checkpoint({jobs,revisions});throw new Error(`镜头 ${shot.id} 生成失败，继续时将重新提交`);}
         const url=mediaURL(job.url);clips.push({shotId:shot.id,url,duration:shot.duration,providerJobId:job.id});log(`镜头 ${shot.id} 已生成`);
       }
       return {clips,summary:`${clips.length} 个 API 生成的视频片段`};

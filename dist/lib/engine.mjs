@@ -1,3 +1,4 @@
+import {ensureMemory,syncScriptMemory,compileStoryboard} from './memory.mjs';
 export const AGENTS = [
   {id:'plan', name:'制片 Agent', role:'任务规划', tool:'plan.create', deps:[], color:'#b3a1ff'},
   {id:'script', name:'编剧 Agent', role:'故事与对白', tool:'llm.generate_script', deps:['plan'], color:'#f1b077'},
@@ -38,6 +39,7 @@ export function validateArtifact(id, a) {
     if(!array(a.shots)||a.shots.length>30) throw new Error('分镜数量应为 1–30');
     if(a.shots.some(s=>!string(s.id)||!string(s.sceneId)||!Number.isFinite(s.duration)||s.duration<=0||s.duration>30||!string(s.camera)||!string(s.visual)||!string(s.prompt)||!string(s.narration))) throw new Error('分镜字段不完整或时长越界');
     if(new Set(a.shots.map(s=>s.id)).size!==a.shots.length) throw new Error('镜头 ID 重复');
+    if(a.shots.some(s=>s.cameraPosition&&!['inherit','north','south','east','west'].includes(s.cameraPosition)))throw new Error('镜头机位无效');
   }
   if(id==='video'&&(!array(a.clips)||a.clips.some(c=>!string(c.shotId)||!string(c.url)))) throw new Error('视频产物缺少镜头地址');
   if(id==='voice'&&(!string(a.transcript)||!string(a.url))) throw new Error('配音产物缺少文本或音频地址');
@@ -45,7 +47,7 @@ export function validateArtifact(id, a) {
   return a;
 }
 export class Engine {
-  constructor(run, tools, onChange=()=>{}, options={}) {this.run=clone(run);this.tools=tools;this.onChange=onChange;this.controller=new AbortController();this.options={retryDelay:600,...options};this.busy=false;}
+  constructor(run, tools, onChange=()=>{}, options={}) {this.run=clone(run);ensureMemory(this.run);this.tools=tools;this.onChange=onChange;this.controller=new AbortController();this.options={retryDelay:600,...options};this.busy=false;}
   emit(type, node, message, extra={}) {
     this.run.updatedAt=new Date().toISOString();
     this.run.events.push({id:uid(),time:this.run.updatedAt,type,node,message,...extra});
@@ -60,7 +62,7 @@ export class Engine {
     for(let attempt=0;attempt<3;attempt++) {
       try {
         this.controller.signal.throwIfAborted();n.attempts++;
-        const result=await this.tools[id]({run:clone(this.run),signal:this.controller.signal,log:message=>this.emit('tool',id,message,{tool:agent.tool}),checkpoint:data=>{n.checkpoint=clone(data);this.emit('checkpoint',id,'已保存工具执行检查点',{tool:agent.tool});}});
+        let result=await this.tools[id]({run:clone(this.run),signal:this.controller.signal,log:message=>this.emit('tool',id,message,{tool:agent.tool}),checkpoint:data=>{n.checkpoint=clone(data);this.emit('checkpoint',id,'已保存工具执行检查点',{tool:agent.tool});}});
         this.controller.signal.throwIfAborted();
         validateArtifact(id,result);
         if(id==='review'&&!result.passed) {const e=new Error('审稿未通过：'+result.findings.join('；'));e.retryable=false;throw e;}
@@ -70,8 +72,9 @@ export class Engine {
           const duration=result.shots.reduce((sum,s)=>sum+s.duration,0);
           if(Math.abs(duration-Number(this.run.brief.duration))>1)throw new Error('分镜总时长与创作设定不一致');
         }
+        if(id==='storyboard')result=compileStoryboard(this.run,result);
         this.run.artifacts[id]=result;n.status='completed';n.elapsed=Date.now()-n.startedAt;
-        if(id==='script'){this.run.memory.characters=clone(result.characters);this.run.memory.facts=[result.logline,...result.scenes.map(s=>s.beat)];}
+        if(id==='script')syncScriptMemory(this.run,result);
         this.run.memory.summaries.push({node:id,summary:result.summary||`${agent.role}完成`,time:new Date().toISOString()});
         this.emit('complete',id,`${agent.role}已完成`);return;
       } catch(error) {

@@ -42,7 +42,7 @@ npm start
 
 `POST {VIDEO_API_URL}/jobs`
 
-请求头：`Authorization: Bearer <VIDEO_API_KEY>`（配置时）、`Content-Type: application/json`、`Idempotency-Key: <run-id>-<shot-id>`。
+请求头：`Authorization: Bearer <VIDEO_API_KEY>`（配置时）、`Content-Type: application/json`、`Idempotency-Key: <run-id>-<shot-id>-<request-fingerprint>-<attempt>`。请求指纹随提示词、时长、画幅和参考图内容改变；供应商明确失败后的重新提交会递增 attempt。
 
 ```json
 {
@@ -53,7 +53,7 @@ npm start
 }
 ```
 
-`reference_image` 可选。响应必须包含稳定任务 ID 和状态：
+`reference_image` 可选。当前场景的参考图优先于项目公共参考图；提示词包含用户保存的场景布局、元素、环境、角色和状态约束。协议没有把平面布局伪装成供应商原生的三维或深度控制能力。响应必须包含稳定任务 ID 和状态：
 
 ```json
 {"id":"provider-job-123","status":"pending"}

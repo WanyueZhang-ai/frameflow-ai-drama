@@ -6,6 +6,7 @@ import {mkdtemp,readFile,rm} from 'node:fs/promises';
 import {createLiveTools,request,llm} from '../src/providers.mjs';
 import {createRun} from '../dist/lib/engine.mjs';
 import {DEFAULT_BRIEF,completedDemo} from '../dist/lib/demo.mjs';
+import {requestFingerprint,videoInput} from '../dist/lib/memory.mjs';
 
 const context=run=>({run,signal:new AbortController().signal,log:()=>{},checkpoint:()=>{}});
 test('video protocol preserves idempotency and resumes persisted jobs without resubmission',async()=>{
@@ -15,7 +16,7 @@ test('video protocol preserves idempotency and resumes persisted jobs without re
   const result=await tools.video({...context(run),checkpoint:x=>checkpoint=x});
   assert.equal(posts,0);assert.equal(gets,1);assert.equal(result.clips[0].providerJobId,'existing-job');assert.equal(checkpoint.jobs['shot-1'].status,'succeeded');
   run.nodes.video.checkpoint=undefined;
-  const newTools=createLiveTools({env:{VIDEO_API_URL:'https://video.example'},fetchRequest:async(url,init)=>{assert.equal(init.headers['Idempotency-Key'],`${run.id}-shot-1`);return {id:'new-job',status:'succeeded',url:'https://media.example/video.mp4'};}});
+  const newTools=createLiveTools({env:{VIDEO_API_URL:'https://video.example'},fetchRequest:async(url,init)=>{assert.equal(init.headers['Idempotency-Key'],`${run.id}-shot-1-${requestFingerprint(videoInput(run,run.artifacts.storyboard.shots[0]))}-0`);return {id:'new-job',status:'succeeded',url:'https://media.example/video.mp4'};}});
   assert.equal((await newTools.video(context(run))).clips.length,1);
 });
 test('voice creates one real audio segment per shot and composer aligns corresponding segments',async()=>{
